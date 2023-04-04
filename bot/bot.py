@@ -36,6 +36,7 @@ import openai_utils
 
 # setup
 db = database.Database()
+keys = database.ApiKeys()
 logger = logging.getLogger(__name__)
 
 user_semaphores = {}
@@ -47,6 +48,7 @@ HELP_MESSAGE = """Commands:
 ⚪ /mode – Select chat mode
 ⚪ /settings – Show settings
 ⚪ /balance – Show balance
+⚪ /key – Install new API key
 ⚪ /help – Show help
 """
 
@@ -112,6 +114,19 @@ async def help_handle(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     db.set_user_attribute(user_id, "last_interaction", datetime.now())
     await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.HTML)
+    
+async def api_key_handle(update: Update, context: CallbackContext):
+    await register_user_if_not_exists(update, context, update.message.from_user)
+    user_id = update.message.from_user.id
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
+    try:
+        message = "Successful!"
+        keys.set_key(user_id, context.args[0])
+        
+    except (AttributeError, IndexError):
+        message = 'Error!\nUse "/key <API_KEY>"'
+    
+    await update.message.reply_text(message) #, parse_mode=ParseMode.HTML)
 
 
 async def retry_handle(update: Update, context: CallbackContext):
@@ -157,6 +172,13 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         current_model = db.get_user_attribute(user_id, "current_model")
 
         try:
+            key = keys.get_key(user_id)
+            if not key:
+                text_str = 'Before using, configure the fucking API key.\nExample: /key qwerty'
+                await update.message.reply_text(text_str, parse_mode=ParseMode.HTML)
+                return
+            
+            openai_utils.openai.api_key = key
             # send placeholder message to user
             placeholder_message = await update.message.reply_text("...")
 
@@ -485,6 +507,7 @@ async def post_init(application: Application):
         BotCommand("/retry", "Re-generate response for previous query"),
         BotCommand("/balance", "Show balance"),
         BotCommand("/settings", "Show settings"),
+        BotCommand("/key", "Install API key"),
         BotCommand("/help", "Show help message"),
     ])
 
@@ -500,13 +523,14 @@ def run_bot() -> None:
 
     # add handlers
     user_filter = filters.ALL
-    if len(config.allowed_telegram_usernames) > 0:
-        usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
-        user_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
-        user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids)
+    #if len(config.allowed_telegram_usernames) > 0:
+    #    usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
+    #    user_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
+    #    user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids)
 
     application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
     application.add_handler(CommandHandler("help", help_handle, filters=user_filter))
+    application.add_handler(CommandHandler("key", api_key_handle, filters=user_filter))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, message_handle))
     application.add_handler(CommandHandler("retry", retry_handle, filters=user_filter))

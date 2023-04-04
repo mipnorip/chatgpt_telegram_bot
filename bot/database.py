@@ -3,7 +3,7 @@ from typing import Optional, Any
 import pymongo
 import uuid
 from datetime import datetime
-
+from redis import Redis, RedisError
 import config
 
 
@@ -125,3 +125,24 @@ class Database:
             {"_id": dialog_id, "user_id": user_id},
             {"$set": {"messages": dialog_messages}}
         )
+
+class ApiKeys:
+    def __init__(self) -> None:
+        self.redis = Redis(host=config.redis_uri, port=config.redis_port, db=0, decode_responses=True)
+        return
+        
+    def get_key(self, user_id):
+        try:
+            key = self.redis.get(user_id)
+            
+            if not self.redis.exists(user_id):
+                key = False
+        except RedisError:
+            key = False
+        
+        return key
+    
+    def set_key(self, user_id, key) -> None:
+        self.redis.set(user_id, key)
+        self.redis.save()
+    
